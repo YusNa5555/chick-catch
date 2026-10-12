@@ -134,6 +134,7 @@
     <h1 id="t1">ひよこキャッチ</h1>
     <p>逃げ回るひよこを、タップでつかまえよう。<br>制限時間は30秒。</p>
     <p class="muted">金色のひよこは 5点 + 2秒プラス。<br>続けてつかまえるとコンボでボーナス。</p>
+    <p class="muted">超高速でにげる「にわとり」は10点！<br>1回のゲームで2回しか出ないよ。</p>
     <button class="btn" id="startBtn" type="button">はじめる</button>
   </div>
 </div>
@@ -233,6 +234,7 @@
       if (kind === "catch") { pip(t, 1100, 1900, 0.09, 0.18); pip(t + 0.1, 900, 1600, 0.1, 0.16); }
       else if (kind === "gold") { pip(t, 1200, 1500, 0.09, 0.16); pip(t + 0.08, 1500, 1900, 0.09, 0.16); pip(t + 0.16, 1900, 2500, 0.16, 0.16); }
       else if (kind === "miss") { pip(t, 300, 200, 0.1, 0.08); }
+      else if (kind === "hen") { pip(t, 500, 800, 0.08, 0.18); pip(t + 0.1, 700, 450, 0.08, 0.16); pip(t + 0.2, 500, 800, 0.08, 0.18); }
       else if (kind === "end") { pip(t, 800, 500, 0.18, 0.15); pip(t + 0.18, 600, 380, 0.25, 0.15); }
     } catch (e) {}
   }
@@ -309,6 +311,7 @@
   var state = "ready"; // ready | playing | over
   var score = 0, timeLeft = GAME_TIME, elapsed = 0, combo = 0, comboT = 0, caught = 0, goldCaught = 0, maxCombo = 0;
   var shake = 0, spawnCool = 0, goldCool = 6;
+  var henCaught = 0, henIdx = 0, henTimes = [10, 22];
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
@@ -327,11 +330,26 @@
     });
   }
 
+  function spawnHen() {
+    var dirx = Math.random() < 0.5 ? 1 : -1;
+    var r = unit * 1.5;
+    var minY = fieldTop + r, maxY = H - r - 8;
+    var baseY = rand(minY, maxY);
+    chicks.push({
+      x: dirx > 0 ? -r * 2 : W + r * 2, y: baseY, baseY: baseY,
+      amp: rand(0.08, 0.2) * (maxY - minY), zf: rand(4, 7), t: 0,
+      r: r, hen: true, gold: false, vx: dirx * W * rand(0.6, 0.75), face: dirx,
+      phase: 0, age: 1, flee: 0, life: 999, dir: 0, turnT: 99, speed: 0
+    });
+    sfx("hen");
+  }
+
   function targetCount() { return state === "playing" ? Math.min(9, 5 + Math.floor(elapsed / 6)) : 4; }
 
   function resetGame() {
     chicks.length = 0; particles.length = 0; floaters.length = 0; ripples.length = 0;
     score = 0; timeLeft = GAME_TIME; elapsed = 0; combo = 0; comboT = 0; caught = 0; goldCaught = 0; maxCombo = 0;
+    henCaught = 0; henIdx = 0; henTimes = [rand(6, 12), rand(18, 25)];
     goldCool = 6; spawnCool = 0;
     for (var i = 0; i < 5; i++) spawnChick(false);
     updateHud();
@@ -353,7 +371,7 @@
     el.final.textContent = score + "点";
     el.newbest.hidden = !isNew;
     el.rank.textContent = score >= 40 ? "ひよこマスター！" : score >= 28 ? "ひよこ名人！" : score >= 16 ? "いい調子！" : "もう少し！";
-    el.detail.textContent = caught + "ひき (金色 " + goldCaught + "ひき)・最大コンボ " + maxCombo;
+    el.detail.textContent = caught + "ひき (金色 " + goldCaught + "ひき・にわとり " + henCaught + "ひき)・最大コンボ " + maxCombo;
     setTimeout(function () { el.result.hidden = false; el.retryBtn.focus(); }, 450);
   }
 
@@ -380,7 +398,7 @@
       var c = chicks[i];
       if (c.age < 0.25) continue;
       var d = Math.hypot(x - c.x, y - (c.y - c.r * 0.1));
-      if (d < c.r * 1.5 && d < bd) { bd = d; hit = i; }
+      if (d < c.r * (c.hen ? 1.9 : 1.5) && d < bd) { bd = d; hit = i; }
     }
     if (hit >= 0) { catchChick(hit); return; }
     // miss
@@ -401,18 +419,19 @@
     comboT = 1.3;
     if (combo > maxCombo) maxCombo = combo;
     var bonus = Math.floor(combo / 3);
-    var pts = (c.gold ? 5 : 1) + bonus;
+    var pts = (c.hen ? 10 : c.gold ? 5 : 1) + bonus;
     score += pts; caught++;
     var label = "+" + pts;
+    if (c.hen) { henCaught++; }
     if (c.gold) { timeLeft = Math.min(GAME_TIME + 10, timeLeft + 2); goldCaught++; label += "  +2秒"; }
     floaters.push({ x: c.x, y: c.y - c.r, text: label, t: 0, gold: c.gold });
-    var cols = c.gold ? ["#fff3a0", "#ffc400", "#ffffff"] : ["#ffe066", "#ffd84a", "#ffffff"];
+    var cols = c.hen ? ["#ffffff", "#e5262a", "#f5e9d0"] : c.gold ? ["#fff3a0", "#ffc400", "#ffffff"] : ["#ffe066", "#ffd84a", "#ffffff"];
     for (var k = 0; k < (c.gold ? 18 : 10); k++) {
       var a = Math.random() * 6.283, s = rand(80, 240);
       particles.push({ x: c.x, y: c.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80, t: 0, life: rand(0.4, 0.8), col: cols[k % cols.length], r: rand(2.5, 5) });
     }
-    if (!reduce) shake = c.gold ? 0.25 : 0.08;
-    sfx(c.gold ? "gold" : "catch");
+    // screen shake disabled (felt like an earthquake on large screens)
+    sfx(c.gold || c.hen ? "gold" : "catch");
     updateHud();
   }
 
@@ -431,12 +450,23 @@
       spawnCool -= dt;
       var hasGold = chicks.some(function (c) { return c.gold; });
       if (playing && !hasGold && goldCool <= 0 && elapsed > 4) { spawnChick(true); goldCool = rand(7, 11); }
-      if (chicks.length < targetCount() && spawnCool <= 0) { spawnChick(false); spawnCool = 0.25; }
+      if (playing && henIdx < 2 && elapsed >= henTimes[henIdx] && !chicks.some(function (c) { return c.hen; })) { spawnHen(); henIdx++; }
+      if (chicks.filter(function (c) { return !c.hen; }).length < targetCount() && spawnCool <= 0) { spawnChick(false); spawnCool = 0.25; }
     }
     for (var i = chicks.length - 1; i >= 0; i--) {
       var c = chicks[i];
       c.age += dt; c.life -= dt;
       if (c.life <= 0) { chicks.splice(i, 1); continue; }
+      if (c.hen) {
+        c.t += dt; c.x += c.vx * dt;
+        var hy = c.baseY + Math.sin(c.t * c.zf) * c.amp + Math.sin(c.t * c.zf * 2.3 + 1) * c.amp * 0.5;
+        c.y = Math.min(Math.max(hy, fieldTop + c.r), H - c.r - 8);
+        c.phase += dt * 30;
+        if ((c.vx > 0 && c.x > W + c.r * 2.5) || (c.vx < 0 && c.x < -c.r * 2.5)) {
+          chicks.splice(i, 1);
+        }
+        continue;
+      }
       c.turnT -= dt;
       if (c.turnT <= 0) { c.dir += rand(-1.3, 1.3); c.turnT = rand(0.4, 1.4); }
       if (c.flee > 0) c.flee -= dt;
@@ -504,13 +534,22 @@
     ctx.moveTo(-r * 0.25, r * 0.8); ctx.lineTo(-r * 0.25 + sw, r * 1.05); ctx.lineTo(-r * 0.25 + sw + r * 0.16, r * 1.05);
     ctx.moveTo(r * 0.2, r * 0.8); ctx.lineTo(r * 0.2 - sw, r * 1.05); ctx.lineTo(r * 0.2 - sw + r * 0.16, r * 1.05);
     ctx.stroke();
+    if (c.hen) {
+      ctx.fillStyle = "#7a4b2a"; ctx.beginPath(); ctx.ellipse(-r * 1.0, -r * 0.25, r * 0.5, r * 0.2, -0.7, 0, 6.3); ctx.fill();
+      ctx.fillStyle = "#2f8f5b"; ctx.beginPath(); ctx.ellipse(-r * 0.95, -r * 0.5, r * 0.45, r * 0.16, -1.0, 0, 6.3); ctx.fill();
+    }
     // body
-    ctx.fillStyle = c.gold ? "#ffc61a" : "#ffd84a";
+    ctx.fillStyle = c.hen ? "#fffaf0" : c.gold ? "#ffc61a" : "#ffd84a";
     ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.3); ctx.fill();
-    ctx.fillStyle = c.gold ? "#ffe27a" : "#ffeb8a";
+    ctx.fillStyle = c.hen ? "#ffffff" : c.gold ? "#ffe27a" : "#ffeb8a";
     ctx.beginPath(); ctx.ellipse(r * 0.18, r * 0.35, r * 0.6, r * 0.5, 0, 0, 6.3); ctx.fill();
     // head tuft or crown
-    if (c.gold) {
+    if (c.hen) {
+      ctx.fillStyle = "#e5262a";
+      ctx.beginPath();
+      ctx.arc(-r * 0.05, -r * 1.0, r * 0.2, 0, 6.3); ctx.arc(r * 0.22, -r * 1.06, r * 0.22, 0, 6.3); ctx.arc(r * 0.5, -r * 0.96, r * 0.18, 0, 6.3);
+      ctx.fill();
+    } else if (c.gold) {
       ctx.fillStyle = "#e8590c";
       ctx.beginPath();
       ctx.moveTo(-r * 0.32, -r * 0.88); ctx.lineTo(-r * 0.36, -r * 1.3); ctx.lineTo(-r * 0.14, -r * 1.08);
@@ -527,7 +566,7 @@
     ctx.save();
     ctx.translate(-r * 0.3, r * 0.1);
     ctx.rotate(-0.25 + Math.sin(c.phase * 2) * 0.45);
-    ctx.fillStyle = c.gold ? "#f0a500" : "#f6bd2b";
+    ctx.fillStyle = c.hen ? "#e6d8c0" : c.gold ? "#f0a500" : "#f6bd2b";
     ctx.beginPath(); ctx.ellipse(0, 0, r * 0.5, r * 0.3, 0, 0, 6.3); ctx.fill();
     ctx.restore();
     // cheek
@@ -539,6 +578,7 @@
     // beak
     ctx.fillStyle = "#ff8a1f";
     ctx.beginPath(); ctx.moveTo(r * 0.88, -r * 0.14); ctx.lineTo(r * 1.32, r * 0.02); ctx.lineTo(r * 0.88, r * 0.14); ctx.closePath(); ctx.fill();
+    if (c.hen) { ctx.fillStyle = "#e5262a"; ctx.beginPath(); ctx.ellipse(r * 0.85, r * 0.3, r * 0.1, r * 0.2, 0, 0, 6.3); ctx.fill(); }
     ctx.restore();
     if (c.gold) {
       ctx.fillStyle = "rgba(255,255,255,.95)";
